@@ -144,7 +144,7 @@ const Bim: FC<BimProps> = () => {
         return texture;
       };
 
-      const repeatLength = 2000;
+      const repeatLength = 4000;
       const bridgeScaler = 1;
       const geo = new Geometry().fromBufferGeometry(member.geometry);
       // 因为模型有放缩，为了保证repeatLength的1:1，此处geometry也应同等放缩
@@ -491,10 +491,10 @@ const Bim: FC<BimProps> = () => {
 
   // 根据病害信息贴图
   useEffect(() => {
-    if (!bridgeDefectList?.length || !bridgeGroup) return;
+    if (!bridgeDefectList?.length || !bridgeModel) return;
     bridgeDefectList.forEach((defectInfo) => {
       const { sideType, memberType, memberNo, pDistRange, iDistRange } = defectInfo;
-      const singleBridgeModel = bridgeGroup.query(new RegExp(`${sideType}`))?.[0] as THREE.Object3D;
+      const singleBridgeModel = bridgeModel.query(new RegExp(`${sideType}`))?.[0] as THREE.Object3D;
       if (!singleBridgeModel) return;
       const memberModel = singleBridgeModel.query(new RegExp(`${memberType}@${memberNo}`))?.[0] as THREE.Mesh;
       const locationInfo = MEMBER_DEFECT_LOCATION[memberType];
@@ -594,14 +594,14 @@ const Bim: FC<BimProps> = () => {
               object: memberModel,
               localFace: face,
               localPoint: defectLocalPosition,
-              textureUrl: require('@/../public/image/2988D88A-8E41-4471-9AF4-22C3F0D67BF4.png'),
+              textureUrl: require('@/../public/image/4.png'),
               defectSize: Math.max(length1, length2),
             });
           }
         }
       }
     });
-  }, [bridgeDefectList, bridgeGroup, getRangeDistance, addDefectTexture]);
+  }, [bridgeDefectList, bridgeModel, getRangeDistance, addDefectTexture]);
 
   // useEffect(() => {
   //   if (!bridgeModel) return;
