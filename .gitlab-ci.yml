@@ -1,0 +1,13 @@
+# stages:
+#   - build
+#   - test
+
+# job_prod_build_and_docker:
+#   stage: build
+#   tags:
+#     - development
+#   only:
+#     - master
+#     - development
+#   script:
+#     - sh .deploy-stage.sh
