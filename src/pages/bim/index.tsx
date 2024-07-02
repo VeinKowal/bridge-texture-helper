@@ -25,15 +25,17 @@ import useBridgeGroup from '@/assets/useBridgeGroup';
 import { appCameraFitTarget } from '@/components/app/util';
 
 const csgEvaluator = new Evaluator();
+const textureLoader = new THREE.TextureLoader();
 
 type BimProps = unknown;
 
 type FaceLike = {
-  a: THREE.Vector3;
-  b: THREE.Vector3;
-  c: THREE.Vector3;
+  a: number;
+  b: number;
+  c: number;
   normal: THREE.Vector3;
 }
+
 
 const MEMBER_DEFECT_LOCATION: Record<string, ['front' | 'back', 'left' | 'right', 'top' | 'bottom']> = {
   底板: ['front', 'right', 'bottom'],
@@ -60,201 +62,6 @@ const Bim: FC<BimProps> = () => {
     return bridgeGroup;
   }, [app, bridgeGroup]);
 
-  const getAllIndicesUsingPoint = useMemoizedFn((
-    point: THREE.Vector3Like,
-    indexArray: number[],
-    positionArray: number[]
-  ) => {
-    const triangleIndices: number[][] = [];
-    const tempVectorA = new THREE.Vector3();
-    const tempVectorB = new THREE.Vector3();
-    const tempVectorC = new THREE.Vector3();
-    for (let i = 0; i < indexArray.length; i += 3) {
-      const a = indexArray[i];
-      const b = indexArray[i + 1];
-      const c = indexArray[i + 2];
-      const pointAIndex = a * 3;
-      const pointBIndex = b * 3;
-      const pointCIndex = c * 3;
-      const vertexA = tempVectorA.fromArray([positionArray[pointAIndex], positionArray[pointAIndex + 1], positionArray[pointAIndex + 2]]);
-      const vertexB = tempVectorB.fromArray([positionArray[pointBIndex], positionArray[pointBIndex + 1], positionArray[pointBIndex + 2]]);
-      const vertexC = tempVectorC.fromArray([positionArray[pointCIndex], positionArray[pointCIndex + 1], positionArray[pointCIndex + 2]]);
-      if (vertexA.equals(point) || vertexB.equals(point) || vertexC.equals(point)) {
-        triangleIndices.push([a, b, c]);
-      }
-    }
-    return triangleIndices;
-  });
-
-  // 更新构件UV
-  const applyMeshGridSkin = useMemoizedFn(
-    (
-      member: THREE.Mesh,
-      textures?: {
-        mapTextureURL: string,
-        normalTextureURL?: string,
-        aoTextureURL?: string,
-        bumpTextureURL?: string,
-        repeat?: THREE.Vector2
-      }
-    ) => {
-      const computeGroups = (geometry: any) => {
-        const groups = [];
-        let group, i;
-        let materialIndex = undefined;
-        const faces = geometry.faces;
-        for (i = 0; i < faces.length; i++) {
-          const face = faces[i];
-          // materials
-          if (face.materialIndex !== materialIndex) {
-            materialIndex = face.materialIndex;
-            if (group !== undefined) {
-              group.count = (i * 3) - group.start;
-              groups.push(group);
-            }
-            group = {
-              start: i * 3,
-              materialIndex: materialIndex
-            };
-          }
-        }
-        if (group !== undefined) {
-          group.count = (i * 3) - group.start;
-          groups.push(group);
-        }
-        return groups;
-      }
-
-      /**
-       * @description 创建Texture.
-       * @param {string | ImgData} url - 图片路径或者图片数据.
-       * @return {Texture}.
-      */
-      const createNewTexture = (url?: string, flipY: boolean = false) => {
-        if (!url) return undefined;
-        const texture = new THREE.TextureLoader().load(url);
-        // 因为repeat大于1 开启边缘和外边界重复
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        if (textures?.repeat) {
-          texture.repeat.copy(textures.repeat);
-        }
-        texture.flipY = !!flipY;
-        texture.needsUpdate = true;
-        return texture;
-      };
-
-      const repeatLength = 4000;
-      const bridgeScaler = 1;
-      const geo = new Geometry().fromBufferGeometry(member.geometry);
-      // 因为模型有放缩，为了保证repeatLength的1:1，此处geometry也应同等放缩
-      geo.scale(bridgeScaler, bridgeScaler, bridgeScaler);
-      geo.mergeVertices();
-      geo.computeBoundingBox();
-      const { boundingBox } = geo;
-
-      const minX = boundingBox.min.x;
-      const minZ = boundingBox.min.z;
-      const minY = boundingBox.min.y;
-      const maxX = boundingBox.max.x;
-      const maxZ = boundingBox.max.z;
-      const maxY = boundingBox.max.y;
-      const uv: THREE.Vector2[] = [];
-      const materials = [];
-      const mapTextures = new Array(3).fill(null).map(() => createNewTexture(textures?.mapTextureURL));
-      const normalTextures = new Array(3).fill(null).map(() => createNewTexture(textures?.normalTextureURL));
-      const aoTextures = new Array(3).fill(null).map(() => createNewTexture(textures?.aoTextureURL));
-      const bumpTextures = new Array(3).fill(null).map(() => createNewTexture(textures?.bumpTextureURL));
-
-      // console.log('min', minX, minY, minZ);
-      // console.log('max', maxX, maxY, maxZ);
-
-      for (let i = 0; i < geo.faces.length; i += 1) {
-        const a = geo.vertices[geo.faces[i].a];
-        const b = geo.vertices[geo.faces[i].b];
-        const c = geo.vertices[geo.faces[i].c];
-        const disList = [Math.max(a.x, b.x, c.x) - Math.min(a.x, b.x, c.x), Math.max(a.z, b.z, c.z) - Math.min(a.z, b.z, c.z), Math.max(a.y, b.y, c.y) - Math.min(a.y, b.y, c.y)];
-        const minDisIndex = disList.findIndex(e => e === min(disList));
-        // 如果这个面是几乎平行于x轴的 则根据z0y面进行切分赋uv值 其他判断原理类似
-        if (minDisIndex === 0) {
-          uv.push(
-            new THREE.Vector2((a.y - minY) / (maxY - minY), (a.z - minZ) / (maxZ - minZ)),
-            new THREE.Vector2((b.y - minY) / (maxY - minY), (b.z - minZ) / (maxZ - minZ)),
-            new THREE.Vector2((c.y - minY) / (maxY - minY), (c.z - minZ) / (maxZ - minZ)),
-          );
-          // 指定uv映射哪个材质
-          geo.faces[i].materialIndex = 1;
-          if (!textures?.repeat) {
-            // 切分成固定大小的方格
-            mapTextures?.[1]?.repeat.set((maxY - minY) / repeatLength, (maxZ - minZ) / repeatLength);
-            normalTextures?.[1]?.repeat.set((maxY - minY) / repeatLength, (maxZ - minZ) / repeatLength);
-            aoTextures?.[1]?.repeat.set((maxY - minY) / repeatLength, (maxZ - minZ) / repeatLength);
-            bumpTextures?.[1]?.repeat.set((maxY - minY) / repeatLength, (maxZ - minZ) / repeatLength);
-          }
-        } else if (minDisIndex === 1) {
-          uv.push(
-            new THREE.Vector2((a.x - minX) / (maxX - minX), (a.y - minY) / (maxY - minY)),
-            new THREE.Vector2((b.x - minX) / (maxX - minX), (b.y - minY) / (maxY - minY)),
-            new THREE.Vector2((c.x - minX) / (maxX - minX), (c.y - minY) / (maxY - minY)),
-          );
-          geo.faces[i].materialIndex = 2;
-          if (!textures?.repeat) {
-            mapTextures?.[2]?.repeat.set((maxX - minX) / repeatLength, (maxY - minY) / repeatLength);
-            normalTextures?.[2]?.repeat.set((maxX - minX) / repeatLength, (maxY - minY) / repeatLength);
-            aoTextures?.[2]?.repeat.set((maxX - minX) / repeatLength, (maxY - minY) / repeatLength);
-            bumpTextures?.[2]?.repeat.set((maxX - minX) / repeatLength, (maxY - minY) / repeatLength);
-          }
-        } else {
-          uv.push(
-            new THREE.Vector2((a.x - minX) / (maxX - minX), (a.z - minZ) / (maxZ - minZ)),
-            new THREE.Vector2((b.x - minX) / (maxX - minX), (b.z - minZ) / (maxZ - minZ)),
-            new THREE.Vector2((c.x - minX) / (maxX - minX), (c.z - minZ) / (maxZ - minZ)),
-          );
-          geo.faces[i].materialIndex = 0;
-          if (!textures?.repeat) {
-            mapTextures?.[0]?.repeat.set((maxX - minX) / repeatLength, (maxZ - minZ) / repeatLength);
-            normalTextures?.[0]?.repeat.set((maxX - minX) / repeatLength, (maxZ - minZ) / repeatLength);
-            aoTextures?.[0]?.repeat.set((maxX - minX) / repeatLength, (maxZ - minZ) / repeatLength);
-            bumpTextures?.[0]?.repeat.set((maxX - minX) / repeatLength, (maxZ - minZ) / repeatLength);
-          }
-        }
-      }
-      const groups = computeGroups(geo);
-      member.geometry.groups = groups;
-      member.geometry.setAttribute('uv', new THREE.Float32BufferAttribute(flatten(uv.map(e => e.toArray())), 2));
-
-
-      for (let i = 0; i < 3; i += 1) {
-        const material = new THREE.MeshPhongMaterial({
-          // 此处可修改为BackSide FrontSide 节约渲染时间 因为担心日后模型有正反面问题 此时未替换
-          side: THREE.DoubleSide,
-          transparent: false,
-          depthTest: false
-          // polygonOffset: true,
-          // polygonOffsetFactor: 1,
-          // polygonOffsetUnits: 1,
-        });
-        if (mapTextures?.[i]) {
-          material.map = mapTextures[i] || null;
-        }
-        if (normalTextures?.[i]) {
-          material.normalMap = normalTextures?.[i] || null;
-        }
-        if (aoTextures?.[i]) {
-          material.aoMap = aoTextures?.[i] || null;
-        }
-        if (bumpTextures?.[i]) {
-          material.bumpMap = bumpTextures?.[i] || null;
-        }
-        material.needsUpdate = true;
-        materials.push(material);
-      }
-
-
-      return materials;
-    }
-  );
-
   const getRangeDistance = useMemoizedFn((rangeStr: string) => {
     const results = [];
     if (rangeStr.includes('-')) {
@@ -271,20 +78,16 @@ const Bim: FC<BimProps> = () => {
 
   const findClosestTriangle = (point: THREE.Vector3, geometry: THREE.BufferGeometry) => {
     const positionAttr = geometry.attributes.position;
-    const normalAttr = geometry.attributes.normal;
     const indexArray = geometry.index!.array;
 
-    const a = new THREE.Vector3();
-    const b = new THREE.Vector3();
-    const c = new THREE.Vector3();
+    let a: number | undefined = undefined;
+    let b: number | undefined = undefined;
+    let c: number | undefined = undefined;
     const normal = new THREE.Vector3();
 
     const tempVectorA = new THREE.Vector3();
     const tempVectorB = new THREE.Vector3();
     const tempVectorC = new THREE.Vector3();
-    const tempNormalA = new THREE.Vector3();
-    const tempNormalB = new THREE.Vector3();
-    const tempNormalC = new THREE.Vector3();
 
     let minDistance = Infinity;
     let closestFace: FaceLike | undefined = undefined;
@@ -292,9 +95,6 @@ const Bim: FC<BimProps> = () => {
       tempVectorA.fromBufferAttribute(positionAttr, indexArray[i]);
       tempVectorB.fromBufferAttribute(positionAttr, indexArray[i + 1]);
       tempVectorC.fromBufferAttribute(positionAttr, indexArray[i + 2]);
-      tempNormalA.fromBufferAttribute(normalAttr, indexArray[i]);
-      tempNormalB.fromBufferAttribute(normalAttr, indexArray[i + 1]);
-      tempNormalC.fromBufferAttribute(normalAttr, indexArray[i + 2]);
 
       const triangle = new THREE.Triangle(tempVectorA, tempVectorB, tempVectorC);
       const projection = new THREE.Vector3();
@@ -303,12 +103,10 @@ const Bim: FC<BimProps> = () => {
 
       if (distance < minDistance) {
         minDistance = distance;
-        a.copy(tempVectorA);
-        b.copy(tempVectorB);
-        c.copy(tempNormalC);
-        normal.addVectors(a, b)
-          .add(c)
-          .divideScalar(3);
+        a = indexArray[i];
+        b = indexArray[i + 1];
+        c = indexArray[i + 2];
+        triangle.getNormal(normal);
         closestFace = { a, b, c, normal };
       }
     }
@@ -350,7 +148,7 @@ const Bim: FC<BimProps> = () => {
                 tempVec.set(
                   x === 0 ? boxMin.x : boxMax.x,
                   y === 0 ? boxMin.y : boxMax.y,
-                  z === 0 ? boxMin.z : boxMax.z
+                  z === 0 ? boxMin.z : boxMax.z,
                 );
                 if (!sphere.containsPoint(tempVec)) {
                   return INTERSECTED;
@@ -399,80 +197,37 @@ const Bim: FC<BimProps> = () => {
       })
     }
     if (indices.size) {
-      const newGeometry = new THREE.BufferGeometry();
-      const triangleMap: { triangleIndex: number; vertices: number[]; uvs: number[]; }[] = [];
+      const targetNormal = new THREE.Vector3();
       indices.forEach((index) => {
         const normal = tempVec.fromBufferAttribute(normalAttr, index);
         if (normal.dot(localFace.normal) <= 0) return;
-        const position = tempVec.fromBufferAttribute(posAttr, index);
-        const list = getAllIndicesUsingPoint(position, indexArray, posArray);
-        list.forEach(([a, b, c]) => {
-          const vertices: number[] = [];
-          const uvs: number[] = [];
-          [a, b, c].forEach((i) => {
-            vertices.push(
-              posAttr.getX(i),
-              posAttr.getY(i),
-              posAttr.getZ(i),
-            );
-            uvs.push(
-              uvAttr.getX(i),
-              uvAttr.getY(i),
-            );
-          });
-          triangleMap.push({
-            vertices,
-            uvs,
-            triangleIndex: a,
-          });
-        });
+        targetNormal.add(normal);
       });
-      const positionList = flatten(triangleMap.map(v => v.vertices));
-      const uvList = flatten(triangleMap.map(v => v.uvs));
-      const indexList = new Array(Math.floor(positionList.length / 3)).fill(undefined).map((_, i) => {
-        return i;
-      });
-      newGeometry.setAttribute(
-        'position',
-        new THREE.Float32BufferAttribute(positionList, 3)
-      );
-      newGeometry.setAttribute(
-        'uv',
-        new THREE.Float32BufferAttribute(uvList, 2)
-      );
-      newGeometry.setIndex(indexList);
-      newGeometry.computeVertexNormals();
-
-      const gridMaterial = new GridMaterial({
-        side: THREE.DoubleSide,
-        wireframe: true
-      });
-      const boxGeometry = new THREE.BoxGeometry(defectSize, 1, defectSize);
+      targetNormal.divideScalar(indices.size).normalize();
+      const defectGeometry = new THREE.PlaneGeometry(defectSize, defectSize);
       const quaternion = new THREE.Quaternion();
-      quaternion.setFromUnitVectors(localFace.normal, THREE.Object3D.DEFAULT_UP);
-      boxGeometry.applyQuaternion(quaternion);
-      boxGeometry.translate(localPoint.x, localPoint.y, localPoint.z);
-      // const newMesh = new THREE.Mesh(boxGeometry, new THREE.MeshBasicMaterial({
-      //   color: 0xffffff * Math.random(),
-      //   depthTest: false
-      // }));
-      // object.add(newMesh);
-      const meshBrush = new Brush(newGeometry.clone(), gridMaterial);
-      meshBrush.updateMatrixWorld();
-      const boxBrush = new Brush(boxGeometry.clone(), gridMaterial);
-      boxBrush.updateMatrixWorld();
-      const resultObject = csgEvaluator.evaluate(
-        meshBrush,
-        boxBrush,
-        INTERSECTION
-      );
-      resultObject.geometry.groups.length = 0;
-      resultObject.material = applyMeshGridSkin(resultObject, {
-        mapTextureURL: textureUrl,
+      quaternion.setFromUnitVectors(targetNormal, THREE.Object3D.DEFAULT_UP);
+      quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));
+      defectGeometry.applyQuaternion(quaternion);
+      if (targetNormal.y > 0) {
+        defectGeometry.translate(0, 0.01, 0);
+      } else {
+        defectGeometry.translate(0, -0.01, 0);
+      }
+      const defectMaterial = new THREE.MeshBasicMaterial({
+        transparent: true,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+        side: THREE.DoubleSide
       });
-      resultObject.renderOrder = 100;
-      object.add(resultObject);
-      console.log('贴图结束', resultObject);
+      textureLoader.loadAsync(textureUrl).then((texture) => {
+        defectMaterial.map = texture;
+        defectMaterial.needsUpdate = true;
+      });
+      const defectMesh = new THREE.Mesh(defectGeometry, defectMaterial);
+      defectMesh.position.copy(localPoint);
+      object.add(defectMesh);
     }
   });
 
@@ -499,7 +254,6 @@ const Bim: FC<BimProps> = () => {
       const memberModel = singleBridgeModel.query(new RegExp(`${memberType}@${memberNo}`))?.[0] as THREE.Mesh;
       const locationInfo = MEMBER_DEFECT_LOCATION[memberType];
       if (memberModel && locationInfo) {
-        console.log('member:', memberModel);
         const { geometry } = memberModel;
         const positionAttr = geometry.attributes.position;
         const indexArray = geometry.index!.array;
@@ -580,210 +334,100 @@ const Bim: FC<BimProps> = () => {
             defectLocalPosition.x -= middleDistance2;
             if (direct2 === 'left') {
               defectLocalPosition.z -= middleDistance1;
+            } else {
+              defectLocalPosition.z += middleDistance1;
             }
           } else {
             defectLocalPosition.x += middleDistance2;
             if (direct2 === 'left') {
               defectLocalPosition.z -= middleDistance1;
+            } else {
+              defectLocalPosition.z += middleDistance1;
             }
           }
-          const face = findClosestTriangle(originLocalPosition, geometry);
+          const face = findClosestTriangle(defectLocalPosition, geometry);
           if (face) {
             console.log('开始贴图');
             addDefectTexture({
               object: memberModel,
               localFace: face,
               localPoint: defectLocalPosition,
-              textureUrl: require('@/../public/image/4.png'),
+              textureUrl: require('@/../public/image/裂缝.png'),
               defectSize: Math.max(length1, length2),
             });
+            // {
+            //   // 标记face三点位置
+            //   const { a, b, c } = face;
+            //   [a, b, c].forEach((index) => {
+            //     const position = new THREE.Vector3().fromBufferAttribute(positionAttr, index);
+            //     const geo = new THREE.SphereGeometry(100);
+            //     const mat = new THREE.MeshBasicMaterial({
+            //       color: 0xffffff * Math.random(),
+            //       depthTest: false,
+            //       // depthTest: true,
+            //     });
+            //     const mesh = new THREE.Mesh(geo, mat);
+            //     mesh.position.copy(position);
+            //     memberModel.add(mesh);
+            //   })
+            // }
+            // {
+            //   // 标记病害位置
+            //   const geo = new THREE.SphereGeometry(100);
+            //   const mat = new THREE.MeshBasicMaterial({
+            //     color: 0xff0000,
+            //     // depthTest: false,
+            //     depthTest: true,
+            //   });
+            //   const mesh = new THREE.Mesh(geo, mat);
+            //   mesh.position.copy(defectLocalPosition);
+            //   memberModel.add(mesh);
+            // }
           }
         }
       }
     });
   }, [bridgeDefectList, bridgeModel, getRangeDistance, addDefectTexture]);
 
-  // useEffect(() => {
-  //   if (!bridgeModel) return;
-  //   const clickEvent = (e) => {
-  //     if (e.data.button !== 0) return;
-  //     const face = e.currentFace.face;
-  //     const point = e.currentFace.point;
-  //     const object = e.currentTarget;
-  //     const geometry = object.geometry;
-  //     object.updateMatrixWorld();
-  //     const indices = new Set<number>();
-  //     const triangles = new Set();
-  //     const uvAttr = geometry.attributes.uv;
-  //     const normalAttr = geometry.attributes.normal;
-  //     const posAttr = geometry.attributes.position;
-  //     const posArray = posAttr.array;
-  //     const indexAttr = geometry.index;
-  //     const indexArray = indexAttr.array;
+  // 点哪儿贴哪儿
+  useEffect(() => {
+    if (!bridgeModel) return;
+    const clickEvent = (e) => {
+      if (e.data.button !== 0) return;
+      const face = e.currentFace.face;
+      const point = e.currentFace.point;
+      const object = e.currentTarget;
+      object.updateMatrixWorld();
 
-  //     const inverseMatrix = new THREE.Matrix4();
-  //     inverseMatrix.copy(object.matrixWorld).invert();
-  //     const localPoint = new THREE.Vector3();
-  //     localPoint.copy(point).applyMatrix4(inverseMatrix);
+      const inverseMatrix = new THREE.Matrix4();
+      inverseMatrix.copy(object.matrixWorld).invert();
+      const localPoint = new THREE.Vector3();
+      localPoint.copy(point).applyMatrix4(inverseMatrix);
 
-  //     const defectSize = 1000;
-  //     const sphere = new THREE.Sphere();
-  //     sphere.center.copy(localPoint);
-  //     sphere.radius = defectSize;
+      const defectSize = 1000;
+      addDefectTexture({
+        object,
+        localPoint,
+        defectSize,
+        localFace: face,
+        textureUrl: require('@/../public/image/裂缝.png'),
+      });
+    }
+    bridgeModel.traverse(e => {
+      const child = e as THREE.Mesh;
+      if (!child.isMesh) return;
+      child.geometry.boundsTree?.refit();
+      child.on('click', clickEvent);
+    });
 
-  //     const tempVec = new THREE.Vector3();
-  //     const bvh = geometry.boundsTree;
-  //     bvh.shapecast({
-  //       intersectsBounds: (box: THREE.Box3) => {
-  //         const intersects = sphere.intersectsBox(box);
-  //         const { min, max } = box;
-  //         if (intersects) {
-  //           for (let x = 0; x <= 1; x++) {
-  //             for (let y = 0; y <= 1; y++) {
-  //               for (let z = 0; z <= 1; z++) {
-  //                 tempVec.set(
-  //                   x === 0 ? min.x : max.x,
-  //                   y === 0 ? min.y : max.y,
-  //                   z === 0 ? min.z : max.z
-  //                 );
-  //                 if (!sphere.containsPoint(tempVec)) {
-  //                   return INTERSECTED;
-  //                 }
-  //               }
-  //             }
-  //           }
-  //           return CONTAINED;
-  //         }
-  //         return intersects ? INTERSECTED : NOT_INTERSECTED;
-  //       },
-  //       intersectsTriangle: (tri: THREE.Triangle, index: number, contained: boolean) => {
-  //         const triIndex = index;
-  //         triangles.add(triIndex);
-  //         const i3 = 3 * index;
-  //         const a = i3 + 0;
-  //         const b = i3 + 1;
-  //         const c = i3 + 2;
-  //         const va = indexAttr.getX(a);
-  //         const vb = indexAttr.getX(b);
-  //         const vc = indexAttr.getX(c);
-  //         if (contained) {
-  //           indices.add(va);
-  //           indices.add(vb);
-  //           indices.add(vc);
-  //         } else {
-  //           if (sphere.containsPoint(tri.a)) {
-  //             indices.add(va);
-  //           }
-  //           if (sphere.containsPoint(tri.b)) {
-  //             indices.add(vb);
-  //           }
-  //           if (sphere.containsPoint(tri.c)) {
-  //             indices.add(vc);
-  //           }
-  //         }
-  //         return false;
-  //       }
-  //     });
-  //     if (!indices.size && face) {
-  //       const { a, b, c } = face;
-  //       [a, b, c].forEach((index) => {
-  //         if (!indices.has(index)) {
-  //           indices.add(index);
-  //         }
-  //       })
-  //     }
-  //     if (indices.size) {
-  //       console.log(342, object);
-  //       const newGeometry = new THREE.BufferGeometry();
-  //       const triangleMap: { triangleIndex: number; vertices: number[]; uvs: number[]; }[] = [];
-  //       indices.forEach((index) => {
-  //         const normal = tempVec.fromBufferAttribute(normalAttr, index);
-  //         if (normal.dot(face.normal) <= 0) return;
-  //         const position = tempVec.fromBufferAttribute(posAttr, index);
-  //         const list = getAllIndicesUsingPoint(position, indexArray, posArray);
-  //         list.forEach(([a, b, c]) => {
-  //           const vertices: number[] = [];
-  //           const uvs: number[] = [];
-  //           [a, b, c].forEach((i) => {
-  //             vertices.push(
-  //               posAttr.getX(i),
-  //               posAttr.getY(i),
-  //               posAttr.getZ(i),
-  //             );
-  //             uvs.push(
-  //               uvAttr.getX(i),
-  //               uvAttr.getY(i),
-  //             );
-  //           });
-  //           triangleMap.push({
-  //             vertices,
-  //             uvs,
-  //             triangleIndex: a,
-  //           });
-  //         });
-  //       });
-  //       const positionList = flatten(triangleMap.map(v => v.vertices));
-  //       const uvList = flatten(triangleMap.map(v => v.uvs));
-  //       const indexList = new Array(Math.floor(positionList.length / 3)).fill(undefined).map((_, i) => {
-  //         return i;
-  //       });
-  //       newGeometry.setAttribute(
-  //         'position',
-  //         new THREE.Float32BufferAttribute(positionList, 3)
-  //       );
-  //       newGeometry.setAttribute(
-  //         'uv',
-  //         new THREE.Float32BufferAttribute(uvList, 2)
-  //       );
-  //       newGeometry.setIndex(indexList);
-  //       newGeometry.computeVertexNormals();
-
-  //       const gridMaterial = new GridMaterial({
-  //         side: THREE.DoubleSide,
-  //         wireframe: true
-  //       });
-  //       const boxGeometry = new THREE.BoxGeometry(defectSize, 1, defectSize);
-  //       const quaternion = new THREE.Quaternion();
-  //       quaternion.setFromUnitVectors(face.normal, THREE.Object3D.DEFAULT_UP);
-  //       boxGeometry.applyQuaternion(quaternion);
-  //       boxGeometry.translate(localPoint.x, localPoint.y, localPoint.z);
-  //       // const newMesh = new THREE.Mesh(boxGeometry, new THREE.MeshBasicMaterial({
-  //       //   color: 0xffffff * Math.random(),
-  //       //   depthTest: false
-  //       // }));
-  //       // object.add(newMesh);
-  //       const meshBrush = new Brush(newGeometry.clone(), gridMaterial);
-  //       meshBrush.updateMatrixWorld();
-  //       const boxBrush = new Brush(boxGeometry.clone(), gridMaterial);
-  //       boxBrush.updateMatrixWorld();
-  //       const resultObject = csgEvaluator.evaluate(
-  //         meshBrush,
-  //         boxBrush,
-  //         INTERSECTION
-  //       );
-  //       resultObject.geometry.groups.length = 0;
-  //       resultObject.material = applyMeshGridSkin(resultObject, {
-  //         mapTextureURL: require('@/../public/image/2988D88A-8E41-4471-9AF4-22C3F0D67BF4.png')
-  //       });
-  //       resultObject.renderOrder = 100;
-  //       object.add(resultObject);
-  //     }
-  //   }
-  //   bridgeModel.traverse(e => {
-  //     const child = e as THREE.Mesh;
-  //     if (!child.isMesh) return;
-  //     child.geometry.boundsTree!.refit();
-  //     child.on('click', clickEvent);
-  //   });
-
-  //   return () => {
-  //     bridgeModel.traverse(e => {
-  //       const child = e as THREE.Mesh;
-  //       if (!child.isMesh) return;
-  //       child.off('click', clickEvent);
-  //     });
-  //   }
-  // }, [bridgeModel, getAllIndicesUsingPoint, applyMeshGridSkin]);
+    return () => {
+      bridgeModel.traverse(e => {
+        const child = e as THREE.Mesh;
+        if (!child.isMesh) return;
+        child.off('click', clickEvent);
+      });
+    }
+  }, [bridgeModel, addDefectTexture]);
 
   return (
     <div className={styles.bimContainer}>
