@@ -206,7 +206,7 @@ const Bim: FC<BimProps> = () => {
       targetNormal.divideScalar(indices.size).normalize();
       const defectGeometry = new THREE.PlaneGeometry(defectSize, defectSize);
       const quaternion = new THREE.Quaternion();
-      quaternion.setFromUnitVectors(targetNormal, THREE.Object3D.DEFAULT_UP);
+      quaternion.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, targetNormal);
       quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));
       defectGeometry.applyQuaternion(quaternion);
       if (targetNormal.y > 0) {
