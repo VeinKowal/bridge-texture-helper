@@ -8,23 +8,14 @@ import React, { useRef, useState, useMemo, useEffect } from 'react';
 import styles from './index.less';
 import { useModel } from '@umijs/max';
 import { Spin } from 'antd';
-import { flatten, isEqual, min } from 'lodash';
+import { isEqual } from 'lodash';
 import { useMemoizedFn } from 'ahooks';
 import * as THREE from 'three';
-import { Geometry } from '@/assets/Geometry.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils';
-import {
-  Evaluator,
-  Brush,
-  GridMaterial,
-  INTERSECTION
-} from 'three-bvh-csg';
 import { CONTAINED, INTERSECTED, NOT_INTERSECTED } from 'three-mesh-bvh';
 import App from '@/components/app';
 import useBridgeGroup from '@/assets/useBridgeGroup';
 import { appCameraFitTarget } from '@/components/app/util';
 
-const csgEvaluator = new Evaluator();
 const textureLoader = new THREE.TextureLoader();
 
 type BimProps = unknown;
@@ -36,9 +27,9 @@ type FaceLike = {
   normal: THREE.Vector3;
 }
 
-
 const MEMBER_DEFECT_LOCATION: Record<string, ['front' | 'back', 'left' | 'right', 'top' | 'bottom']> = {
   底板: ['front', 'right', 'bottom'],
+  腹板: ['front', 'right', 'bottom'],
 };
 
 const Bim: FC<BimProps> = () => {
@@ -63,6 +54,7 @@ const Bim: FC<BimProps> = () => {
   }, [app, bridgeGroup]);
 
   const getRangeDistance = useMemoizedFn((rangeStr: string) => {
+    if (!rangeStr) return [0, 0, 0, 0];
     const results = [];
     if (rangeStr.includes('-')) {
       const parts = rangeStr.split('-').map(Number);
@@ -228,6 +220,7 @@ const Bim: FC<BimProps> = () => {
       const defectMesh = new THREE.Mesh(defectGeometry, defectMaterial);
       defectMesh.position.copy(localPoint);
       object.add(defectMesh);
+      console.log('贴图结束');
     }
   });
 
@@ -248,7 +241,7 @@ const Bim: FC<BimProps> = () => {
   useEffect(() => {
     if (!bridgeDefectList?.length || !bridgeModel) return;
     bridgeDefectList.forEach((defectInfo) => {
-      const { sideType, memberType, memberNo, pDistRange, iDistRange } = defectInfo;
+      const { sideType, memberType, memberNo, pDistRange, iDistRange, tDistRange } = defectInfo;
       const singleBridgeModel = bridgeModel.query(new RegExp(`${sideType}`))?.[0] as THREE.Object3D;
       if (!singleBridgeModel) return;
       const memberModel = singleBridgeModel.query(new RegExp(`${memberType}@${memberNo}`))?.[0] as THREE.Mesh;
@@ -300,6 +293,7 @@ const Bim: FC<BimProps> = () => {
           });
           return targetVector;
         });
+
         let originLocalPosition: THREE.Vector3 | undefined = undefined;
         if (isEqual(['front', 'right', 'bottom'], locationInfo)) {
           originLocalPosition = edgeVertices[0];
@@ -325,24 +319,45 @@ const Bim: FC<BimProps> = () => {
         else if (isEqual(['back', 'left', 'top'], locationInfo)) {
           originLocalPosition = edgeVertices[7];
         }
-        if (originLocalPosition && pDistRange && iDistRange) {
+        if (originLocalPosition && pDistRange && (iDistRange || tDistRange)) {
           const defectLocalPosition = new THREE.Vector3().copy(originLocalPosition);
           const [startDistance1, endDistance1, middleDistance1, length1] = getRangeDistance(pDistRange);
           const [startDistance2, endDistance2, middleDistance2, length2] = getRangeDistance(iDistRange);
-          const [direct1, direct2] = locationInfo;
-          if (direct1 === 'back') {
-            defectLocalPosition.x -= middleDistance2;
-            if (direct2 === 'left') {
-              defectLocalPosition.z -= middleDistance1;
+          const [startDistance3, endDistance3, middleDistance3, length3] = getRangeDistance(tDistRange);
+          const [direct1, direct2, direct3] = locationInfo;
+          if (direct3 === 'top') {
+            defectLocalPosition.y -= middleDistance3;
+            if (direct1 === 'back') {
+              defectLocalPosition.x -= middleDistance2;
+              if (direct2 === 'left') {
+                defectLocalPosition.z -= middleDistance1;
+              } else {
+                defectLocalPosition.z += middleDistance1;
+              }
             } else {
-              defectLocalPosition.z += middleDistance1;
+              defectLocalPosition.x += middleDistance2;
+              if (direct2 === 'left') {
+                defectLocalPosition.z -= middleDistance1;
+              } else {
+                defectLocalPosition.z += middleDistance1;
+              }
             }
           } else {
-            defectLocalPosition.x += middleDistance2;
-            if (direct2 === 'left') {
-              defectLocalPosition.z -= middleDistance1;
+            defectLocalPosition.y += middleDistance3;
+            if (direct1 === 'back') {
+              defectLocalPosition.x -= middleDistance2;
+              if (direct2 === 'left') {
+                defectLocalPosition.z -= middleDistance1;
+              } else {
+                defectLocalPosition.z += middleDistance1;
+              }
             } else {
-              defectLocalPosition.z += middleDistance1;
+              defectLocalPosition.x += middleDistance2;
+              if (direct2 === 'left') {
+                defectLocalPosition.z -= middleDistance1;
+              } else {
+                defectLocalPosition.z += middleDistance1;
+              }
             }
           }
           const face = findClosestTriangle(defectLocalPosition, geometry);
@@ -353,7 +368,7 @@ const Bim: FC<BimProps> = () => {
               localFace: face,
               localPoint: defectLocalPosition,
               textureUrl: require('@/../public/image/裂缝.png'),
-              defectSize: Math.max(length1, length2),
+              defectSize: Math.max(length1, length2, length3),
             });
             // {
             //   // 标记face三点位置
@@ -363,26 +378,26 @@ const Bim: FC<BimProps> = () => {
             //     const geo = new THREE.SphereGeometry(100);
             //     const mat = new THREE.MeshBasicMaterial({
             //       color: 0xffffff * Math.random(),
-            //       depthTest: false,
-            //       // depthTest: true,
+            //       // depthTest: false,
+            //       depthTest: true,
             //     });
             //     const mesh = new THREE.Mesh(geo, mat);
             //     mesh.position.copy(position);
             //     memberModel.add(mesh);
             //   })
             // }
-            // {
-            //   // 标记病害位置
-            //   const geo = new THREE.SphereGeometry(100);
-            //   const mat = new THREE.MeshBasicMaterial({
-            //     color: 0xff0000,
-            //     // depthTest: false,
-            //     depthTest: true,
-            //   });
-            //   const mesh = new THREE.Mesh(geo, mat);
-            //   mesh.position.copy(defectLocalPosition);
-            //   memberModel.add(mesh);
-            // }
+            {
+              // 标记病害位置
+              const geo = new THREE.SphereGeometry(100);
+              const mat = new THREE.MeshBasicMaterial({
+                color: 0xff0000,
+                depthTest: false,
+                // depthTest: true,
+              });
+              const mesh = new THREE.Mesh(geo, mat);
+              mesh.position.copy(defectLocalPosition);
+              memberModel.add(mesh);
+            }
           }
         }
       }
