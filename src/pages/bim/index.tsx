@@ -87,7 +87,6 @@ const Bim: FC<BimProps> = () => {
       tempVectorA.fromBufferAttribute(positionAttr, indexArray[i]);
       tempVectorB.fromBufferAttribute(positionAttr, indexArray[i + 1]);
       tempVectorC.fromBufferAttribute(positionAttr, indexArray[i + 2]);
-
       const triangle = new THREE.Triangle(tempVectorA, tempVectorB, tempVectorC);
       const projection = new THREE.Vector3();
       triangle.closestPointToPoint(point, projection);
@@ -117,12 +116,8 @@ const Bim: FC<BimProps> = () => {
     object.updateMatrixWorld();
     const indices = new Set<number>();
     const triangles = new Set();
-    const uvAttr = geometry.attributes.uv;
     const normalAttr = geometry.attributes.normal;
-    const posAttr = geometry.attributes.position;
-    const posArray = posAttr.array;
     const indexAttr = geometry.index!;
-    const indexArray = indexAttr.array;
     const sphere = new THREE.Sphere();
     sphere.center.copy(localPoint);
     sphere.radius = defectSize;
@@ -190,9 +185,10 @@ const Bim: FC<BimProps> = () => {
     }
     if (indices.size) {
       const targetNormal = new THREE.Vector3();
+      const faceNormal = localFace.normal;
       indices.forEach((index) => {
         const normal = tempVec.fromBufferAttribute(normalAttr, index);
-        if (normal.dot(localFace.normal) <= 0) return;
+        if (normal.dot(faceNormal) <= 0) return;
         targetNormal.add(normal);
       });
       targetNormal.divideScalar(indices.size).normalize();
@@ -248,6 +244,7 @@ const Bim: FC<BimProps> = () => {
       const memberModel = singleBridgeModel.query(new RegExp(`${memberType}@${memberNo}`))?.[0] as THREE.Mesh;
       const locationInfo = MEMBER_DEFECT_LOCATION[memberType];
       if (memberModel && locationInfo) {
+        memberModel.updateMatrixWorld();
         const { geometry } = memberModel;
         const positionAttr = geometry.attributes.position;
         const indexArray = geometry.index!.array;
@@ -363,7 +360,10 @@ const Bim: FC<BimProps> = () => {
               }
             }
           }
-          const face = findClosestTriangle(defectLocalPosition, geometry);
+          const face = findClosestTriangle(
+            defectLocalPosition,
+            geometry,
+          );
           if (face) {
             console.log('开始贴图');
             addDefectTexture({
@@ -371,36 +371,37 @@ const Bim: FC<BimProps> = () => {
               localFace: face,
               localPoint: defectLocalPosition,
               textureUrl: require('@/../public/image/裂缝.png'),
-              defectSize: Math.max(length1, length2, length3),
+              defectSize: Math.max(length1, length2, length3) || 1000,
             });
-            // {
-            //   // 标记face三点位置
-            //   const { a, b, c } = face;
-            // [a, b, c].forEach((index) => {
-            //   const position = new THREE.Vector3().fromBufferAttribute(positionAttr, index);
-            //   const geo = new THREE.SphereGeometry(100);
-            //   const mat = new THREE.MeshBasicMaterial({
-            //     color: 0xffffff * Math.random(),
-            //     // depthTest: false,
-            //     depthTest: true,
-            //   });
-            //   const mesh = new THREE.Mesh(geo, mat);
-            //   mesh.position.copy(position);
-            //   memberModel.add(mesh);
-            // })
-            // }
-            // {
-            //   // 标记病害位置
-            //   const geo = new THREE.SphereGeometry(100);
-            //   const mat = new THREE.MeshBasicMaterial({
-            //     color: 0xff0000,
-            //     depthTest: false,
-            //     // depthTest: true,
-            //   });
-            //   const mesh = new THREE.Mesh(geo, mat);
-            //   mesh.position.copy(defectLocalPosition);
-            //   memberModel.add(mesh);
-            // }
+            {
+              // 标记face三点位置
+              const { a, b, c } = face;
+              [a, b, c].forEach((index) => {
+                const position = new THREE.Vector3().fromBufferAttribute(positionAttr, index);
+                const geo = new THREE.SphereGeometry(100);
+                const mat = new THREE.MeshBasicMaterial({
+                  color: 0xffffff * Math.random(),
+                  depthTest: false,
+                  // depthTest: true,
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(position);
+                memberModel.add(mesh);
+              });
+            }
+            {
+              // 标记病害位置
+              const geo = new THREE.SphereGeometry(100);
+              const mat = new THREE.MeshBasicMaterial({
+                color: 0xff0000,
+                depthTest: false,
+                // depthTest: true,
+              });
+              const mesh = new THREE.Mesh(geo, mat);
+              mesh.position.copy(defectLocalPosition);
+              memberModel.add(mesh);
+              memberModel.position.y += 10000;
+            }
             // {
             //   // 标记实际边缘点位置
             //   edgeVertices.forEach((position) => {
@@ -430,6 +431,7 @@ const Bim: FC<BimProps> = () => {
       const point = e.currentFace.point;
       const object = e.currentTarget;
       object.updateMatrixWorld();
+      console.log(object);
 
       const inverseMatrix = new THREE.Matrix4();
       inverseMatrix.copy(object.matrixWorld).invert();
