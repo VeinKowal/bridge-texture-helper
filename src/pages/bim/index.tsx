@@ -396,7 +396,7 @@ const Bim: FC<BimProps> = () => {
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.position.copy(position);
                 memberModel.add(mesh);
-                memberModel.position.y += 2000;
+                memberModel.position.y += (memberModel.geometry.boundingSphere?.radius || 0) + 500;
               })
             }
             // {
