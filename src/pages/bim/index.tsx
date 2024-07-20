@@ -30,6 +30,8 @@ type FaceLike = {
 const MEMBER_DEFECT_LOCATION: Record<string, ['front' | 'back', 'left' | 'right', 'top' | 'bottom']> = {
   底板: ['front', 'right', 'bottom'],
   腹板: ['front', 'right', 'bottom'],
+  翼板: ['front', 'right', 'bottom'],
+  立柱: ['front', 'right', 'bottom']
 };
 
 const Bim: FC<BimProps> = () => {
@@ -53,8 +55,12 @@ const Bim: FC<BimProps> = () => {
     return bridgeGroup;
   }, [app, bridgeGroup]);
 
-  const getRangeDistance = useMemoizedFn((rangeStr: string) => {
+  const getRangeDistance = useMemoizedFn((rangeStr: string | number) => {
     if (!rangeStr) return [0, 0, 0, 0];
+    if (typeof rangeStr === 'number') {
+      const value = rangeStr * 1000;
+      return [value, value, value, 0];
+    }
     const results = [];
     if (rangeStr.includes('-')) {
       const parts = rangeStr.split('-').map(Number);
@@ -189,6 +195,7 @@ const Bim: FC<BimProps> = () => {
       })
     }
     if (indices.size) {
+      console.log('贴图中');
       const targetNormal = new THREE.Vector3();
       indices.forEach((index) => {
         const normal = tempVec.fromBufferAttribute(normalAttr, index);
@@ -247,6 +254,8 @@ const Bim: FC<BimProps> = () => {
       if (!singleBridgeModel) return;
       const memberModel = singleBridgeModel.query(new RegExp(`${memberType}@${memberNo}`))?.[0] as THREE.Mesh;
       const locationInfo = MEMBER_DEFECT_LOCATION[memberType];
+      console.log(memberModel, locationInfo);
+
       if (memberModel && locationInfo) {
         const { geometry } = memberModel;
         const positionAttr = geometry.attributes.position;
@@ -320,7 +329,7 @@ const Bim: FC<BimProps> = () => {
         else if (isEqual(['back', 'left', 'top'], locationInfo)) {
           originLocalPosition = edgeVertices[7];
         }
-        if (originLocalPosition && pDistRange && (iDistRange || tDistRange)) {
+        if (originLocalPosition && (typeof pDistRange !== 'undefined') && (iDistRange || tDistRange)) {
           const defectLocalPosition = new THREE.Vector3().copy(originLocalPosition);
           const [startDistance1, endDistance1, middleDistance1, length1] = getRangeDistance(pDistRange);
           const [startDistance2, endDistance2, middleDistance2, length2] = getRangeDistance(iDistRange);
@@ -371,24 +380,25 @@ const Bim: FC<BimProps> = () => {
               localFace: face,
               localPoint: defectLocalPosition,
               textureUrl: require('@/../public/image/裂缝.png'),
-              defectSize: Math.max(length1, length2, length3),
+              defectSize: Math.max(length1, length2, length3) || 1000,
             });
-            // {
-            //   // 标记face三点位置
-            //   const { a, b, c } = face;
-            // [a, b, c].forEach((index) => {
-            //   const position = new THREE.Vector3().fromBufferAttribute(positionAttr, index);
-            //   const geo = new THREE.SphereGeometry(100);
-            //   const mat = new THREE.MeshBasicMaterial({
-            //     color: 0xffffff * Math.random(),
-            //     // depthTest: false,
-            //     depthTest: true,
-            //   });
-            //   const mesh = new THREE.Mesh(geo, mat);
-            //   mesh.position.copy(position);
-            //   memberModel.add(mesh);
-            // })
-            // }
+            {
+              // 标记face三点位置
+              const { a, b, c } = face;
+              [a, b, c].forEach((index) => {
+                const position = new THREE.Vector3().fromBufferAttribute(positionAttr, index);
+                const geo = new THREE.SphereGeometry(100);
+                const mat = new THREE.MeshBasicMaterial({
+                  color: 0xffffff * Math.random(),
+                  // depthTest: false,
+                  depthTest: true,
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(position);
+                memberModel.add(mesh);
+                memberModel.position.y += 2000;
+              })
+            }
             // {
             //   // 标记病害位置
             //   const geo = new THREE.SphereGeometry(100);
